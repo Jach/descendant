@@ -1,0 +1,5 @@
+/assets/options.ini
+/assets/highscores.txt
+/bin/
+__pycache__/
+*.pyc
