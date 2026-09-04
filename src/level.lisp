@@ -99,6 +99,45 @@
 (defun register-level (keyword class-name)
   (setf (gethash keyword *registry*) class-name))
 
+(defgeneric item-at (level column row)
+  (:documentation
+   "What is drawn at cell (COLUMN, ROW), if it is something the player can choose.
+
+    COLUMN and ROW are cells of the 240x120 picture, ROW counting DOWN from the top the
+    way a pointer does -- not the bottom-up y SCREEN:ENQUEUE takes, because a caller
+    holding a screen position has no reason to know about that.
+
+    Returns an opaque designator to hand back to SELECT-ITEM, or NIL for nothing. NIL by
+    default, so a level opts in by knowing where it drew things; a level that does not
+    implement this simply cannot be tapped, which is the honest answer for one that has
+    no items.")
+  (:method ((level t) column row)
+    (declare (ignore level column row))
+    nil))
+
+(defgeneric select-item (level item)
+  (:documentation
+   "Move the highlight to ITEM, which came from ITEM-AT. Returns T if it moved.
+
+    Deliberately separate from acting on it: touch selects and then sends Return, so the
+    level's own activation path runs and there is exactly one place where choosing an
+    option does what it does.")
+  (:method ((level t) item)
+    (declare (ignore level item))
+    nil))
+
+(defun current-key ()
+  "The keyword the running level was registered under, or NIL if none is running.
+
+   The registry maps keyword to class, and a level instance knows its class, so this is
+   the lookup run backwards. Wanted by anything that has to act differently per level
+   without being one -- the touch layer decides what a two-finger tap means that way,
+   since the gesture is 'pause' in the game and 'show the bestiary' in the credits."
+  (let ((class (and *current* (class-name (class-of *current*)))))
+    (when class
+      (loop for keyword being the hash-keys of *registry* using (hash-value registered)
+            when (eq registered class) return keyword))))
+
 (defun make-level (keyword)
   (let ((class (gethash keyword *registry*)))
     (unless class

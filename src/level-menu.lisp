@@ -237,6 +237,39 @@
   "Rows count up from the bottom, so later options sit lower on screen."
   (- screen:+rows+ (+ (%y-offset rows) (* row +row-step+))))
 
+(defmethod level:item-at ((self menu) column row)
+  "Which option is drawn at this cell, for tapping.
+
+   Only the main page. The options page is laid out in columns rather than a single row
+   list -- see %SUB-ROWS -- and guessing at it would be worse than leaving a tap there
+   meaning what it already means, which is 'choose whatever is highlighted'.
+
+   ROW counts down from the top; %OPTION-Y speaks the bottom-up language SCREEN:ENQUEUE
+   wants, so it is turned around here rather than at either end."
+  (when (eq (menu-page self) :main)
+    (let* ((options (%options self))
+           (rows (length options))
+           ;; The highlight is the target, because it is what the player sees as the
+           ;; item. Bounding by row alone made the whole 240-cell width live, so a tap
+           ;; anywhere on the starfield -- under the banner, off to the right -- chose
+           ;; whichever option happened to share that row.
+           (box (menu-select-box-main self))
+           (left +option-x+)
+           (right (+ left (if box (theme:sprite-width box) +main-area-width+))))
+      (when (<= left column right)
+        (loop for index from 0 below rows
+              for top = (- screen:+rows+ (%option-y index rows))
+              ;; A row is one line of text; half the gap either side is the whole of the
+              ;; target, so adjacent rows tile without overlapping.
+              when (<= (abs (- row top)) (ash +row-step+ -1))
+                return (first (nth index options)))))))
+
+(defmethod level:select-item ((self menu) item)
+  (when (and (eq (menu-page self) :main)
+             (member item (%options self) :key #'first))
+    (setf (menu-selection self) item)
+    t))
+
 (defconstant +main-area-width+ 74)
 (defconstant +base-main-options+ 6
   "Rows the original's panel was drawn for: START, OPTIONS, CONTROLS, HIGH SCORES,

@@ -514,6 +514,14 @@
     (:dead
      (return-from level:update-level (%update-death self))))
 
+  ;; Touch places the ship vertically outright rather than asking it to accelerate --
+  ;; see the header of src/touch.lisp for why steering an accelerating ship with a finger
+  ;; does not work. Horizontal is untouched and still arrives as held arrow keys.
+  #+android
+  (let ((row (com.thejach.descendant.touch:vertical-row)))
+    (when row
+      (player:set-vertical-center-row (descendant-player self) row)))
+
   (let* ((p (descendant-player self))
          (world (descendant-world self))
          (enemies (descendant-enemies self))

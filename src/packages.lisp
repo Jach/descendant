@@ -339,6 +339,9 @@
            #:logic-hz
            #:*state*
            #:*current*
+           #:current-key
+           #:item-at
+           #:select-item
            #:*requested*
            #:*frame*
            #:*screen*
@@ -610,6 +613,7 @@
            #:player-laser-limit #:player-bomb-limit #:player-death-limit
            #:player-spread #:player-rapid #:player-invuln
            #:player-start-x #:player-max-x #:player-min-y #:player-max-y
+           #:set-vertical-center-row
            #:player-fire-bullet #:player-fire-bomb #:player-emit
            #:player-sound-fire #:player-sound-bomb
            #:*couple-vertical-to-thrust* #:*vertical-accel*

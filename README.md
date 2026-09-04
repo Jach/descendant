@@ -10,15 +10,16 @@ You can press F9 while playing to see how fast the game can run on your machine 
 
 My desire to port the game grew around 2019 but I never got very far and it wasn't that important. In 2026 I decided to let Claude take a crack at it with claude code, and after not too much effort this is the result with Opus 5 on high effort.
 
-Full disclosure: I've barely looked at the code or docs or tests. It feels somewhat dirty but at the same time it's pretty cool that the AI can do this relatively trivial thing (there's no ground-breaking math discoveries here) with limited guidance,
+Full disclosure: I've barely looked at the code or tests. It feels somewhat dirty but at the same time it's pretty cool that the AI can do this relatively trivial thing (there's no ground-breaking math discoveries here) with limited guidance,
 and it's been kind of fun to play this old game again. Other AI artifacts (claude.md, plan.md, git log, etc.) are available by request.
 
 # Running
 
 If running from source, you'll need to download [lgame](https://github.com/Jach/lgame) to a place that quicklisp can see (like `~/quicklisp/local-projects/`) but then you should be able to run `sbcl --script run.lisp` to launch the game.
 
-Binaries are also available on the [Releases](releases/) page. The linux binary should work on machines with a relatively modern glibc; debian 13 uses 2.41.
+Binaries are also available on the Releases page. The linux binary should work on machines with a relatively modern glibc; debian 13 uses 2.41.
 The windows binary should also work, but is less tested and I observed one freeze in a quick test that may or may not have been from trying to play it over a network share drive.
+There is also now an android apk, built from the newer sources while the other two binaries still come from the previous version.
 
 # License
 

@@ -19,6 +19,7 @@ the code, so it is written down here rather than left for the next person to red
 | [rendering.md](rendering.md) | Cells, glyphs, the compositor, and the two renderers. The heart of the port. |
 | [assets.md](assets.md) | The original's binary formats, read unmodified, and the colour bug we had to keep. |
 | [building.md](building.md) | Running it, testing it, and producing the Linux and Windows bundles. |
+| [android.md](android.md) | The phone port: why the game is a shared library, and what a touchscreen does to the controls. |
 
 If you only want to change gameplay, `architecture.md` plus the level you care about is
 enough. If you want to touch anything that draws, read `rendering.md` first — the

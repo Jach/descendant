@@ -50,6 +50,23 @@
 (defconstant +input-label-y+ 60)
 (defconstant +input-field-y+ 50)
 
+(defconstant +input-lift+
+  #+android 48
+  #-android 0
+  "Rows to raise the name-entry block by, on a platform whose keyboard eats the screen.
+
+   Android's landscape keyboard covers roughly the bottom half, and the one this was
+   tested against has no preview of its own -- so the player types blind into a field
+   they cannot see. Where the block normally sits, rows 58 to 81 counting down from the
+   top, is precisely what gets covered.
+
+   Lifting it clear is a guess, but an informed one, and it is the only kind available:
+   how tall the keyboard is happens to be the one thing Android will not tell us without
+   Java. SDL exposes no inset or IME height, so the alternative to a fixed offset is a
+   JNI shim reading WindowInsets, for a screen the player sees once a run.
+
+   Note Y counts UP from the bottom here, as SCREEN:ENQUEUE does, so adding moves it up.")
+
 (defparameter *player-keys*
   '("player_one" "player_two" "player_three" "player_four" "player_five"
     "player_six" "player_seven" "player_eight" "player_nine" "player_ten")
@@ -285,6 +302,10 @@
   (setf (score-input-mode? self) (and on? t))
   (when on?
     (setf (score-input-field self) (%input-field-sprite self)))
+  ;; A phone has no keyboard until something asks for one, and it stays up until
+  ;; something says otherwise -- so the request belongs here, where entry begins and
+  ;; ends, rather than at either call site.
+  #+android (com.thejach.descendant.touch:text-input (and on? t))
   self)
 
 (defun input-char (self char)
@@ -368,13 +389,48 @@
   ;; something to enter, and typing a name would scroll the roll instead.
   (when (score-input-mode? self)
     (return-from level:handle-event
-      (when (= (lgame.event:event-type event) lgame::+sdl-keydown+)
-        (let ((key (lgame.event:key-scancode event)))
-          (cond
-            ((= key lgame::+sdl-scancode-return+) (commit-name self) t)
-            ((= key lgame::+sdl-scancode-backspace+) (input-backspace self) t)
-            (t (let ((char (%typed-char key)))
-                 (when char (input-char self char) t))))))))
+      (let ((type (lgame.event:event-type event)))
+        (cond
+          ;; SDL_TEXTINPUT carries characters rather than scancodes, which is the only
+          ;; thing an on-screen keyboard can report: there is no physical key, and the
+          ;; IME may be a swipe, a prediction or another alphabet entirely. Accepted on
+          ;; every platform, not just Android -- a desktop IME produces these too, and
+          ;; the scancode path below still handles an ordinary keyboard.
+          ((= type lgame::+sdl-textinput+)
+           ;; SDL_TextInputEvent.text is a fixed char[32], NUL-terminated, and may carry
+           ;; more than one character at a time. INPUT-CHAR itself filters to the glyphs
+           ;; the HUD font actually has, so anything exotic an IME sends is dropped there
+           ;; rather than needing a second opinion here.
+           (loop for i from 0 below 32
+                 for code = (lgame.event:ref event :text :text i)
+                 until (zerop code)
+                 do (input-char self (code-char code)))
+           t)
+          ((= type lgame::+sdl-keydown+)
+           (let ((key (lgame.event:key-scancode event)))
+             (cond
+               ((= key lgame::+sdl-scancode-return+)
+                ;; COMMIT-NAME refuses an empty name, as the original does. On a phone
+                ;; that refusal is a dead end: the player dismissed the keyboard with the
+                ;; back button before typing anything, a tap arrives here as Return, and
+                ;; there is no other way to ask for the keyboard back -- the screen simply
+                ;; stops responding. So a refused commit re-raises it. Asking when it is
+                ;; already up is harmless; SDL_StartTextInput is idempotent.
+                (or (commit-name self)
+                    #+android
+                    (com.thejach.descendant.touch:text-input t))
+                t)
+               ((= key lgame::+sdl-scancode-backspace+) (input-backspace self) t)
+               (t
+                ;; Only where there is no text input to do it properly.
+                ;;
+                ;; Android's soft keyboard reports every keystroke TWICE: once as a key
+                ;; event, once as SDL_TEXTINPUT. Reading both turned "ok" into "ookk".
+                ;; Return and backspace above are safe because they are not text and
+                ;; arrive only as keys.
+                #-android
+                (let ((char (%typed-char key)))
+                  (when char (input-char self char) t))))))))))
 
   (when (and (>= (score-frame self) +exit-delta+)
              (= (lgame.event:event-type event) lgame::+sdl-keyup+))
@@ -407,9 +463,9 @@
                                (- (ash screen:+cols+ -1)
                                   (ash (theme:sprite-width sprite) -1))
                                y z))))
-      (centred (score-input-area self) +input-area-y+ +z-input-area+)
-      (centred (score-input-label self) +input-label-y+ +z-input+)
-      (centred (score-input-field self) +input-field-y+ +z-input+)))
+      (centred (score-input-area self) (+ +input-area-y+ +input-lift+) +z-input-area+)
+      (centred (score-input-label self) (+ +input-label-y+ +input-lift+) +z-input+)
+      (centred (score-input-field self) (+ +input-field-y+ +input-lift+) +z-input+)))
   t)
 
 (defmethod level:unload-level ((self score))

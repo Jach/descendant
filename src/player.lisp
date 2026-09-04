@@ -122,6 +122,9 @@
   (shield-debt 0.0 :type single-float)
   (min-y 0 :type fixnum)
   (max-y 0 :type fixnum)
+  ;; Touch only: whether the ship is currently travelling to meet a finger that was put
+  ;; down some way off. See SET-VERTICAL-CENTER-ROW.
+  (catching-up? nil :type boolean)
   ;; hooks the gameplay layer fills in; nil until bullets/emitter are ported
   (fire-bullet nil :type (or null function))
   (fire-bomb nil :type (or null function))
@@ -466,6 +469,89 @@
            (let ((push (float (- delta +max-dead-zone+))))
              (incf (movement:movement-world-x m) push)
              (setf (movement:movement-vx m) push))))))))
+
+(defparameter *vertical-follow-step* 2.0
+  "Rows the ship may cross in one tick while catching up to a finger placed far away.
+
+   Two rows a tick is about 125 a second, so the whole play area takes eight tenths of a
+   second to cross -- brisk, clearly movement rather than a jump, and still far quicker
+   than the keyboard manages.
+
+   NIL restores placing the ship outright, for comparing the two.")
+
+(defparameter *vertical-snap-heights* 6.0
+  "How far the ship will simply BE placed, in multiples of its own height, before it
+   starts covering the distance instead.
+
+   Separate from the step above, and larger than it: within this the finger and the ship
+   are the same object and any lag is felt immediately, so it follows exactly. Beyond it
+   the player has lifted a thumb and put it down somewhere else, and appearing there
+   reads as a glitch rather than as flying.
+
+   In ship heights rather than rows because that is the unit the decision is really in --
+   a gap you could hide the ship in is small; one several ships across is a journey.")
+
+(defparameter *vertical-arrive-heights* 2.0
+  "How close the ship must get before a catch-up counts as finished.
+
+   Deliberately smaller than the threshold that starts one, which makes this a latch
+   rather than a line. With a single threshold the ship crosses back into snapping range
+   while still travelling at full speed and jumps the last six ship-heights -- the very
+   thing the catch-up exists to avoid, delivered right at the end where it is most
+   visible. Arriving properly means closing to two.
+
+   Note the landing is still a jump, just a smaller one: releasing the latch places the
+   ship exactly, so the last two ship-heights -- eight rows, measured -- go by in a
+   single tick. That is the cost of having a mode at all, and it cannot be tuned away
+   without also capping ordinary following, which would put lag on every fast swipe.
+   Lower this if eight rows reads as a hop; the limit is *VERTICAL-FOLLOW-STEP*, below
+   which the two are indistinguishable.")
+
+(defun set-vertical-center-row (p row)
+  "Put the MIDDLE of the ship on ROW, counting down from the top of the picture.
+
+   For touch, where the finger's position IS the input rather than a request to
+   accelerate. Vertical velocity is zeroed as well as the position set, or the momentum
+   from a previous key press would keep dragging the ship past the finger.
+
+   The middle and not the top edge. RECT-Y is the top -- a rect spans (y-h, y] and y
+   counts up -- so placing the ship by its rect put the sprite hanging a couple of rows
+   below the thumb, which is small, constant, and exactly the sort of thing that makes a
+   control feel untrustworthy without being obviously wrong.
+
+   The horizontal axis is left completely alone: forward drift, thrust and the one-sided
+   clamp all still apply. Only the vertical becomes a direct placement.
+
+   This is knowingly more control than a keyboard gives -- the ship can cross the play
+   area as fast as a thumb moves. On a touchscreen the alternative is worse: a finger
+   asking for 'slightly up' through an accelerating control is what made the first
+   attempt unflyable."
+  (let* ((m (player-move p))
+         (height (rect:rect-h (player-rect p)))
+         ;; ROW counts down from the top; the game's y counts up. And the caller means
+         ;; the ship's middle, so the top edge sits half a ship above it.
+         (wanted (+ (- screen:+rows+ (float row 1.0)) (/ height 2.0)))
+         (target (max (float (player-min-y p) 1.0)
+                      (min (float (player-max-y p) 1.0) wanted)))
+         (current (movement:movement-world-y m))
+         (gap (- target current))
+         (distance (abs gap))
+         (start (* *vertical-snap-heights* height))
+         (arrive (* *vertical-arrive-heights* height))
+         ;; A latch, not a line: once travelling, keep travelling until close. See
+         ;; *VERTICAL-ARRIVE-HEIGHTS*.
+         (travelling? (cond
+                        ((null *vertical-follow-step*) nil)
+                        ((player-catching-up? p) (> distance arrive))
+                        (t (> distance start))))
+         (y (if travelling?
+                (+ current (* (float (signum gap) 1.0) *vertical-follow-step*))
+                target)))
+    (setf (player-catching-up? p) travelling?)
+    (setf (movement:movement-world-y m) y
+          (movement:movement-vy m) 0.0
+          (player-scr-y p) y))
+  p)
 
 (defun %clamp-y (p)
   (let* ((m (player-move p))

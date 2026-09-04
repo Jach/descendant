@@ -109,10 +109,28 @@
 (defun toggle-unlimited ()
   (setf *unlimited?* (not *unlimited?*)))
 
+(defun consume-touch (event)
+  "On Android, turn touches into key events and say so. Always NIL elsewhere.
+
+   A function rather than a reader conditional inside GAME-TICK, so the loop below reads
+   the same on every platform and there is one place to look for what touch does."
+  (declare (ignorable event))
+  #+android (com.thejach.descendant.touch:translate event)
+  #-android nil)
+
 (defun game-tick ()
   (lgame.event:do-event (event)
-    (unless (handle-global-event event)
-      (level:handle-event level:*current* event)))
+    ;; Touch first: it consumes finger events and the back button, and pushes key events
+    ;; in their place. Everything it does not consume -- including a real keyboard, and
+    ;; the keys it just pushed -- carries on to the handlers below untouched.
+    (unless (consume-touch event)
+      (unless (handle-global-event event)
+        (level:handle-event level:*current* event))))
+
+  ;; After the events, before the level ticks: the stick turns its deflection into key
+  ;; presses here, and they are picked up by the next frame's poll. One frame of latency
+  ;; at 62.5 Hz, for proportional control instead of on-or-off.
+  #+android (com.thejach.descendant.touch:tick)
 
   (level:tick *screen* *renderer*)
 
@@ -146,17 +164,44 @@
      (handler-case
          (progn
            ;; Attributes are read when the window is created, so they go first.
+           ;;
+           ;; Android has no desktop GL at all -- there is no libGL to load, and asking
+           ;; for a 3.3 core profile fails at SDL_CreateWindow with "Could not initialize
+           ;; OpenGL / GLES library". GLES 3.0 is what the driver offers and what the ES
+           ;; shader is written against; this phone reports ES 3.2, so there is headroom.
            (sdl2:gl-set-attr :context-major-version 3)
-           (sdl2:gl-set-attr :context-minor-version 3)
+           #-android (sdl2:gl-set-attr :context-minor-version 3)
+           #+android (sdl2:gl-set-attr :context-minor-version 0)
            (sdl2:gl-set-attr :context-profile-mask
-                             sdl2-ffi:+sdl-gl-context-profile-core+)
+                             #-android sdl2-ffi:+sdl-gl-context-profile-core+
+                             #+android sdl2-ffi:+sdl-gl-context-profile-es+)
            (sdl2:gl-set-attr :doublebuffer 1)
+           ;; The requested size is a formality on Android: the window is the screen, and
+           ;; SDL reports the real drawable afterwards. The shader letterboxes 960x720
+           ;; into whatever it turns out to be.
            (lgame.display:create-centered-window "The Descendant"
                                                  screen:+pixel-width+ screen:+pixel-height+
                                                  (logior lgame::+sdl-window-shown+
-                                                         lgame::+sdl-window-opengl+))
+                                                         lgame::+sdl-window-opengl+
+                                                         #+android
+                                                         lgame::+sdl-window-fullscreen+))
            (setf *gl-context* (sdl2:gl-create-context lgame:*screen*))
            (sdl2:gl-make-current lgame:*screen* *gl-context*)
+
+           ;; Tell cl-opengl how to find GL entry points.
+           ;;
+           ;; It resolves anything beyond the core 1.1 set through a proc-address
+           ;; function, and its fallback on #+linux is glXGetProcAddress -- GLX, which is
+           ;; X11, which Android does not have. The failure is "The alien function
+           ;; glXGetProcAddress is undefined", from the first shader call, and it reads
+           ;; like a missing driver rather than a missing X server.
+           ;;
+           ;; The hook exists for exactly this and cl-opengl's own comment names SDL as a
+           ;; suitable source. Set on every platform rather than #+android: SDL knows how
+           ;; to ask whichever GL is actually loaded, which is more nearly right on the
+           ;; desktop too, and one code path is easier to trust than two.
+           (setf cl-opengl-bindings:*gl-get-proc-address* #'sdl2:gl-get-proc-address)
+
            (renderer.gl:make-gl-renderer :context *gl-context*))
        (error (e)
          (format *error-output*
@@ -185,10 +230,29 @@
   (lgame:with-overlays
     (lgame:init)
 
+    ;; Before the settings, and before anything else touches a file. On Android the assets
+    ;; start out inside the APK, where OPEN cannot reach them; this copies them out once.
+    ;; It needs SDL, hence its position after LGAME:INIT.
+    #+android
+    (let ((n (com.thejach.descendant.android:ensure-assets)))
+      (when (plusp n) (format t "~&extracted ~d asset~:p from the APK~%" n)))
+
     ;; Settings first: they decide which window to open, and they have to be in place
     ;; before the first level loads anyway -- the menu reads difficulty from here, and the
     ;; enemy loader reads it three levels further on.
     (settings:load-settings)
+
+    #+android
+    (progn
+      ;; Auto-fire is not a setting on a touchscreen. HELD? already answers yes for both
+      ;; weapons when it is on, so forcing it here is the whole of "just force auto-fire"
+      ;; -- no level code changes, and the options screen's switch simply has nothing
+      ;; left to decide.
+      (setf (settings:value :auto-fire) t)
+      ;; Without this SDL treats back as "close the app" and never delivers it. The game
+      ;; wants it as Escape: leave the level, leave the menu.
+      (lgame::sdl-set-hint "SDL_ANDROID_TRAP_BACK_BUTTON" "1"))
+
     (state:set-difficulty (settings:value :difficulty))
 
     (setf *renderer* (%open-window-for (settings:value :renderer)))

@@ -165,9 +165,16 @@
    goes up, so the number itself says little -- what it is for is watching how fast it
    climbs, and whether it jumps at a moment that felt like a hitch. A fixed-step loop
    hides small pauses by catching up afterwards, which makes them easy to miss by eye and
-   worth having a number for."
+   worth having a number for.
+
+   The only implementation-specific thing in the whole game, so it is guarded rather than
+   assumed. A reading of zero elsewhere is honest: the readout is a diagnostic whose
+   absolute value already means nothing, and an implementation that cannot answer should
+   say so by staying flat rather than by refusing to compile."
+  #+sbcl
   (/ (float sb-ext:*gc-real-time* 1.0d0)
-     (/ internal-time-units-per-second 1000)))
+     (/ internal-time-units-per-second 1000))
+  #-sbcl 0.0)
 
 (defun set-gc (h milliseconds)
   "GC:00000.0: -- sits above the FPS readout and shares its switch."

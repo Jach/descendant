@@ -9,13 +9,37 @@
 (defun local-dev? ()
   (not *deployed*))
 
+#+android
+(defun android-root ()
+  "The app's own private directory, which on Android is the only place it may write.
+
+   Asked of SDL rather than derived: the path contains the package name and Android is
+   free to change where such directories live, and SDL is already talking to the JNI
+   side that knows. Called through CFFI by name so this file needs no build-time
+   knowledge of SDL -- by the time anything calls APP-ROOT, lgame has loaded it.
+
+   The fallbacks are for running outside an APK, which is how the port is tested on the
+   device over adb: there is no JNI environment, SDL returns nothing, and assets sit
+   beside the system as they do in development."
+  (or (ignore-errors
+       (let ((path (cffi:foreign-funcall "SDL_AndroidGetInternalStoragePath" :string)))
+         (when (and path (plusp (length path)))
+           (pathname (concatenate 'string path "/")))))
+      (ignore-errors (asdf:system-source-directory "descendant"))
+      *default-pathname-defaults*))
+
 (defun app-root ()
   "Where assets/ lives.
 
    Deployed, that is the directory the executable SITS IN, not the one it was launched
    from -- DEPLOY:RUNTIME-DIRECTORY resolves argv0 to get there. Using the working
    directory instead would mean the game only found its assets when started from inside
-   its own folder, which is not how anybody runs a program they have been given."
+   its own folder, which is not how anybody runs a program they have been given.
+
+   Android has no executable to sit beside and no Deploy, so it answers separately."
+  #+android
+  (android-root)
+  #-android
   (if (local-dev?)
       (asdf:system-source-directory "descendant")
       (deploy:runtime-directory)))
