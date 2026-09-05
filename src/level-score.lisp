@@ -383,6 +383,16 @@
       ((= scancode lgame::+sdl-scancode-0+) #\0)
       ((= scancode lgame::+sdl-scancode-minus+) #\_))))
 
+(defun %text-input-active? ()
+  "Whether SDL is reporting typing as SDL_TEXTINPUT, and so whether key events for the
+   same keystrokes are duplicates to be ignored.
+
+   Asked of SDL rather than tracked here, because it is switched from both ends: video
+   init turns it on without being asked, and on Android the player can dismiss the
+   keyboard with the back button at any moment. It is only ever a question about SDL's
+   state, so SDL is the one to ask."
+  (plusp (cffi:foreign-funcall "SDL_IsTextInputActive" :int)))
+
 (defmethod level:handle-event ((self score) event)
   ;; Input mode takes the keyboard entirely, as the original's g_input.Hijack does --
   ;; otherwise SPACE and ESC would skip past the one screen where the player has
@@ -394,8 +404,8 @@
           ;; SDL_TEXTINPUT carries characters rather than scancodes, which is the only
           ;; thing an on-screen keyboard can report: there is no physical key, and the
           ;; IME may be a swipe, a prediction or another alphabet entirely. Accepted on
-          ;; every platform, not just Android -- a desktop IME produces these too, and
-          ;; the scancode path below still handles an ordinary keyboard.
+          ;; every platform, not just Android -- SDL starts text input at video init on
+          ;; the desktop, so this is the branch an ordinary keyboard goes through too.
           ((= type lgame::+sdl-textinput+)
            ;; SDL_TextInputEvent.text is a fixed char[32], NUL-terminated, and may carry
            ;; more than one character at a time. INPUT-CHAR itself filters to the glyphs
@@ -424,13 +434,20 @@
                (t
                 ;; Only where there is no text input to do it properly.
                 ;;
-                ;; Android's soft keyboard reports every keystroke TWICE: once as a key
-                ;; event, once as SDL_TEXTINPUT. Reading both turned "ok" into "ookk".
-                ;; Return and backspace above are safe because they are not text and
-                ;; arrive only as keys.
-                #-android
-                (let ((char (%typed-char key)))
-                  (when char (input-char self char) t))))))))))
+                ;; A keystroke is reported TWICE whenever text input is active: once as
+                ;; a key event, once as SDL_TEXTINPUT. Reading both turns "ok" into
+                ;; "ookk". Return and backspace above are safe because they are not text
+                ;; and arrive only as keys.
+                ;;
+                ;; The condition is whether text input is on, not which platform this is
+                ;; -- an earlier #-android here was the reason the desktop doubled every
+                ;; character. SDL_VideoInit turns text input on everywhere, suppressing
+                ;; only the on-screen keyboard, because it "wants to allow text input
+                ;; from other mechanisms". So the branch above is the live one on every
+                ;; platform, and this is a fallback for having been switched off.
+                (unless (%text-input-active?)
+                  (let ((char (%typed-char key)))
+                    (when char (input-char self char) t)))))))))))
 
   (when (and (>= (score-frame self) +exit-delta+)
              (= (lgame.event:event-type event) lgame::+sdl-keyup+))
